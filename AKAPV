@@ -1,0 +1,214 @@
+free c : channel.
+
+(* data flow *)
+type data1.
+type data2.
+type data3.
+type data4.
+
+
+(* ECDH operations *)
+type G.
+const g:G [data].
+fun mul(G,bitstring):G.
+
+equation forall x:bitstring, y:bitstring;
+    mul(mul(g,x),y) = mul(mul(g,y),x).
+
+(* symmetric fucntion *)
+type key.
+fun senc(bitstring, key): bitstring.
+reduc forall m: bitstring, k: key; sdec(senc(m,k),k) = m.
+
+(* functions *)
+fun h(bitstring):bitstring.
+fun con(bitstring,bitstring):bitstring.
+reduc forall m1:bitstring, m2:bitstring; decon(con(m1,m2)) = (m1,m2).
+
+
+fun hmac(key,bitstring):bitstring.
+
+fun kdf(bitstring,bitstring,bitstring):key.
+fun g2string(G):bitstring.
+reduc forall m1:G; string2g(g2string(m1)) = m1.
+fun string2key(bitstring):key.
+
+(* identity constants *)
+free ID_GW:bitstring[private].
+free ID_CA:bitstring[private].
+free ID_AS:bitstring[private].
+table RegistrationTable(bitstring,key). (* tables are not accessible by the attacker. *)
+free M: bitstring[private].
+
+(* master key *)
+free s: bitstring[private]. 
+
+const T_eva: bitstring[private].
+const T_ini: bitstring[private].
+fun counter(bitstring):bitstring.
+equation counter(counter(counter(counter(counter(T_ini))))) = T_eva. 
+
+(* event *)
+event CARegistrationSucc(bitstring).
+event ASVerifGWSucc(bitstring,bitstring).
+event ASVerifGWFail().
+event ASVerifCASucc(bitstring,bitstring).
+event ASVerifCAFail().
+event CABroadcast(bitstring).
+event CAVerifASSucc(bitstring,bitstring).
+event CAVerifASFail().
+event GWVerifCASucc(bitstring,bitstring).
+event GWVerifCAFail().
+event GWRegistrationSucc(bitstring).
+event End().
+event test1().
+event test2().
+event test3().
+event test4().
+event test5().
+event getRightGWkey().
+event getRightCAKey().
+
+(* queries *)
+query event(CABroadcast(ID_CA)) ==> event(CARegistrationSucc(ID_CA)).
+query event(ASVerifGWSucc(ID_AS,ID_GW)) ==> event(CABroadcast(ID_CA)).
+query event(ASVerifCASucc(ID_CA,ID_CA)) ==> event(ASVerifGWSucc(ID_AS,ID_GW)).
+query event(CAVerifASSucc(ID_CA,ID_AS)) ==> event(ASVerifCASucc(ID_AS,ID_CA)).
+query event(GWVerifCASucc(ID_GW,ID_CA)) ==> event(CAVerifASSucc(ID_CA,ID_AS)).
+query event(End()) ==> event(GWVerifCASucc(ID_GW,ID_CA)).
+query attacker (s).
+query attacker (M).
+
+(*query event(test2()) ==> event(test1()).
+query event(test3()) ==> event(test2()).
+query event(test4()) ==> event(test3()).
+query event(test5()) ==> event(test4()).*)
+
+(*query event(ASVerifGWSucc()).
+query event(ASVerifCASucc()).
+query event(CAVerifASSucc()).
+query event(GWVerifCASucc()).
+query event(End()).
+query event(test1()).
+query event(test2()).
+query event(test3()).
+query event(test4()).
+query event(test5()).
+query event(getRightGWkey()).
+query event(getRightCAKey()).*)
+
+
+(* authentication process *)
+let GWAuthentication(ID_AS:bitstring,ID_GW:bitstring,K_AS_GW:key,g:G) = 
+    in(c,(ID_CA_j:bitstring,TS_cab_j:bitstring,HMAC_MCA_j:bitstring,M1:data1));
+    new R1i: bitstring;
+    new R1i_prime: bitstring;
+    new TS_i: bitstring;
+    new M2:data2;
+    let a_i = hmac(K_AS_GW,con(ID_GW,R1i_prime)) in
+    let Q_ai = mul(g,a_i) in 
+    let PInfo_M1i = con(TS_i,ID_GW) in
+    let EInfo_M1i = senc(con(R1i,con(g2string(Q_ai),con(ID_CA_j,con(TS_cab_j,HMAC_MCA_j)))),K_AS_GW) in
+    let HMAC_M1i = hmac(K_AS_GW,con(PInfo_M1i,EInfo_M1i)) in
+    out(c,(TS_i,ID_GW,EInfo_M1i,HMAC_M1i,M2));
+    (*  *)
+    in(c,(PInfo_M3ij:bitstring,EInfo_M3ij:bitstring,HMAC_M3ij:bitstring,M_ciphertext:bitstring,M4:data4));
+    let (ID_CA_j:bitstring,otherstr1:bitstring) = decon(PInfo_M3ij) in
+    let (Q_bj_str:bitstring,TS_3ij:bitstring) = decon(otherstr1) in
+    let K_shared = mul(string2g(Q_bj_str),a_i) in
+    let K_GW_CA_ij = h(con(g2string(K_shared),con(ID_GW,con(ID_CA_j,R1i)))) in 
+    let verif_HMAC = hmac(string2key(K_GW_CA_ij),con(PInfo_M3ij,EInfo_M3ij)) in
+    if verif_HMAC = HMAC_M3ij then event GWVerifCASucc(ID_GW,ID_CA_j);
+    let M_plaintext = sdec(M_ciphertext,string2key(K_GW_CA_ij)) in
+    if M_plaintext = M then event End().
+
+
+
+
+let CAAuthentication(ID_AS:bitstring,ID_CA:bitstring,K_AS_CA:key,g:G) = 
+    (* broadcast *)
+    new TS_cab_j: bitstring;
+    new M1:data1;
+    event CABroadcast(ID_CA);
+    let PInfo_MCA_j = con(ID_CA,TS_cab_j) in
+    let HMAC_MCA_j = hmac(K_AS_CA,PInfo_MCA_j) in
+    out(c,(ID_CA,TS_cab_j,HMAC_MCA_j,M1));
+
+    (* check hamac of AS and decrypt *)
+    in(c,(TS_2ij:bitstring,EInfo_M2ij:bitstring,HMAC_M2ij:bitstring,M3:data3));
+    new R2j: bitstring;
+    new TS_3ij: bitstring;
+    new M4:data4;
+    let verif_HMAC = hmac(K_AS_CA,con(TS_2ij,EInfo_M2ij)) in
+    if verif_HMAC = HMAC_M2ij then event CAVerifASSucc(ID_CA,ID_AS);
+    let m_dec = sdec(EInfo_M2ij,K_AS_CA) in 
+    let (ID_GW_i:bitstring,otherstr1:bitstring) = decon(m_dec) in
+    let (R1i:bitstring,otherstr2:bitstring) = decon(otherstr1) in
+    let (Q_ai_str:bitstring,E_K_ASCA:bitstring) = decon(otherstr2) in
+    let b_j = hmac(K_AS_CA,con(ID_CA,R2j)) in
+    let Q_bj = mul(g,b_j) in
+    let K_shared = mul(string2g(Q_ai_str),b_j) in
+    let K_GW_CA_ij = h(con(g2string(K_shared),con(ID_GW_i,con(ID_CA,R1i)))) in
+    let M_ciphertext = senc(M,string2key(K_GW_CA_ij)) in
+    let PInfo_M3ij = con(ID_CA,con(g2string(Q_bj),TS_3ij)) in
+    let EInfo_M3ij = senc(con(R1i,E_K_ASCA),string2key(K_GW_CA_ij)) in
+    let HMAC_M3ij = hmac(string2key(K_GW_CA_ij),con(PInfo_M3ij,EInfo_M3ij)) in
+    out(c,(PInfo_M3ij,EInfo_M3ij,HMAC_M3ij,M_ciphertext,M4)).
+
+let ASAuthentication(ID_AS:bitstring) = 
+    in(c,(TS_i:bitstring,ID_GW_i:bitstring,EInfo_M1i:bitstring,HMAC_M1i:bitstring,M2:data2));
+    new TS_2ij:bitstring;
+    new E_K_ASCA:bitstring;
+    new M3:data3;
+    (* check  hmac of GW *)
+    get RegistrationTable(=ID_GW_i,GW_Key) in
+    let PInfo_M1i = con(TS_i,ID_GW_i) in
+    let verif_HMAC_GW = hmac(GW_Key,con(PInfo_M1i,EInfo_M1i)) in
+    if verif_HMAC_GW = HMAC_M1i then event ASVerifGWSucc(ID_AS,ID_GW_i);
+    (* decrypt and check hamc of CA*)
+    let m_dec = sdec(EInfo_M1i,GW_Key) in
+    let (R1i:bitstring,otherstr1:bitstring) = decon(m_dec) in
+    let (Q_ai_str:bitstring,otherstr2:bitstring) = decon(otherstr1) in
+    let (P_info_CA:bitstring,otherstr3:bitstring) = decon(otherstr2) in
+    let (ID_CA_j:bitstring,otherstr4:bitstring) = decon(otherstr3) in
+    let (TS_cab_j:bitstring,HMAC_MCA_j:bitstring) = decon(otherstr4) in
+    get RegistrationTable(=ID_CA_j,CA_Key) in
+    let verif_HMAC_CA = hmac(CA_Key,con(ID_CA_j,TS_cab_j)) in
+    if verif_HMAC_CA = HMAC_MCA_j then event ASVerifCASucc(ID_AS,ID_CA_j);
+    (* *)
+    let EInfo_M2ij = senc(con(ID_GW_i,con(R1i,con(Q_ai_str,E_K_ASCA))),CA_Key) in
+    let HMAC_M2ij = hmac(CA_Key,con(TS_2ij,EInfo_M2ij)) in
+    out(c,(TS_2ij,EInfo_M2ij,HMAC_M2ij,M3)).
+    (* only used to verify that the correct key is obtained from the registration table *)
+    (* if K_AS_GW = GW_Key then event getRightGWkey();
+    if K_AS_CA = CA_Key then event getRightCAKey(). *)
+
+
+(* main *)
+process
+    (* String concatenation and splitting tests -- useless for authentication process *)
+    new teststring1:bitstring;
+    new teststring2:bitstring;
+    new teststring3:bitstring;
+    new teststring4:bitstring;
+    new teststring5:bitstring;
+    let constring = con(teststring1,con(teststring2,con(teststring3,con(teststring4,teststring5)))) in
+    let (constring1:bitstring,otherstr1:bitstring) = decon(constring) in
+    if constring1 = teststring1 then event test1();
+    let (constring2:bitstring,otherstr2:bitstring) = decon(otherstr1) in
+    if constring2 = teststring2 then event test2();
+    let (constring3:bitstring,otherstr3:bitstring) = decon(otherstr2) in
+    if constring3 = teststring3 then event test3(); 
+    let (constring4:bitstring,constring5:bitstring) = decon(otherstr3) in
+    if constring4 = teststring4 then event test4();
+    if constring5 = teststring5 then event test5();
+    (**********************************************************************************)
+    new rand_GW:bitstring;
+    let K_AS_GW = kdf(s,ID_GW,rand_GW) in
+    insert RegistrationTable(ID_GW,K_AS_GW);
+    event GWRegistrationSucc(ID_GW);
+    new rand_CA:bitstring;
+    let K_AS_CA = kdf(s,ID_CA,rand_CA) in
+    insert RegistrationTable(ID_CA,K_AS_CA);
+    event CARegistrationSucc(ID_CA);
+    (ASAuthentication(ID_AS)|CAAuthentication(ID_AS,ID_CA,K_AS_CA,g)|GWAuthentication(ID_AS,ID_GW,K_AS_GW,g))
